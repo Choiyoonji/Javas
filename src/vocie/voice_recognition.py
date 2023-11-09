@@ -42,6 +42,7 @@ ex_answer=''
 is_1 = False
 is_2 = False
 is_3 = False
+callback_flag = False
 
 def find_text_between_parentheses(text):
     pattern = r'\((.*?)\)'  # 괄호 안의 문자열을 추출하는 정규 표현식
@@ -86,75 +87,79 @@ def gpt_ask(text):
     #     return "죄송합니다. 다시 말씀해주세요","슬픔"
 
 def callback(r, audio):
-    global turn_off_flag, recog_flag, ex_answer
-    answer=''
-    text=''
-    try:
-        text = r.recognize_google(audio, language='ko')
-        candidates = r.recognize_google(audio, language='ko', show_all=True)
+    print("callback!")
+    global turn_off_flag, recog_flag, ex_answer, callback_flag
+    if callback_flag == False:
+        callback_flag = True
+        answer=''
+        text=''
+        try:
+            text = r.recognize_google(audio, language='ko')
+            candidates = r.recognize_google(audio, language='ko', show_all=True)
 
-        full_text = ''
-        for text in candidates['alternative']:
-            full_text = full_text + '. ' + text['transcript']
-        text = text['transcript']
-        print("[사용자] " + text)
+            full_text = ''
+            for text in candidates['alternative']:
+                full_text = full_text + '. ' + text['transcript']
+            text = text['transcript']
+            print("[사용자] " + text)
 
-        if '그만' in full_text:
-            turn_off_flag=True
-            face='슬픔'
-            speaker("장치를 종료합니다",face)
-        
-        elif '굿모닝' in full_text or '좋은 아침' in full_text:
-            ans_pub.publish("light_on")
-            answer = '불을 킬게요'
-            face = '웃음'
-            speaker(answer,face)
-
-        elif '나갈' in full_text:
-            go_out_list = ' '.join(prepare_to_go_out)
-            ans_pub.publish(go_out_list)
-            answer = '네, 필요한 물건들을 가져올게요'
-            face = '웃음'
-            speaker(answer,face)         
-            
-        else:
-            order_flag, spoken_tool=sentence_analysis(full_text)
-            if order_flag is 0:
-                answer=' '.join(spoken_tool)
-                answer=answer+'를 가져올게요'
-                en_tool_answer=[]
-                for i in range(len(tool_list)):
-                    if tool_list[i] in spoken_tool:
-                        en_tool_answer.append(en_tool_list[i])
-
-                words_str = ' '.join(en_tool_answer)
-                ans_pub.publish(words_str)
-                face='웃음'
-                speaker(answer,face)
-
-            elif order_flag is 1:
-                answer='그 물건은 가져올 수 없어요'
-                
+            if '그만' in full_text:
+                turn_off_flag=True
                 face='슬픔'
+                speaker("장치를 종료합니다",face)
+            
+            elif '굿모닝' in full_text or '좋은 아침' in full_text:
+                ans_pub.publish("light_on")
+                answer = '불을 킬게요'
+                face = '웃음'
                 speaker(answer,face)
 
-            elif order_flag is 3:
-                answer='문을 열어드릴게요'
-                face='웃음'
-                ans_pub.publish('door')
-                speaker(answer,face)
-            else:
-                answer,face=gpt_ask(text)
+            elif '나갈' in full_text:
+                go_out_list = ' '.join(prepare_to_go_out)
+                ans_pub.publish(go_out_list)
+                answer = '네, 필요한 물건들을 가져올게요'
+                face = '웃음'
+                speaker(answer,face)         
                 
-                speaker(answer,face)
+            else:
+                order_flag, spoken_tool=sentence_analysis(full_text)
+                if order_flag is 0:
+                    answer=' '.join(spoken_tool)
+                    answer=answer+'를 가져올게요'
+                    en_tool_answer=[]
+                    for i in range(len(tool_list)):
+                        if tool_list[i] in spoken_tool:
+                            en_tool_answer.append(en_tool_list[i])
 
-        recog_flag=True    
-        ex_answer=answer
-        print("[자바스] 듣고있어요")
-    except sr.UnknownValueError:
-        recog_flag=False
-    except sr.RequestError as e:
-        print(f"[자바스] 서버 연결에 실패하였습니다 : {e}")
+                    words_str = ' '.join(en_tool_answer)
+                    ans_pub.publish(words_str)
+                    face='웃음'
+                    speaker(answer,face)
+
+                elif order_flag is 1:
+                    answer='그 물건은 가져올 수 없어요'
+                    
+                    face='슬픔'
+                    speaker(answer,face)
+
+                elif order_flag is 3:
+                    answer='문을 열어드릴게요'
+                    face='웃음'
+                    ans_pub.publish('door')
+                    speaker(answer,face)
+                else:
+                    answer,face=gpt_ask(text)
+                    
+                    speaker(answer,face)
+
+            recog_flag=True    
+            ex_answer=answer
+            print("[자바스] 듣고있어요")
+        except sr.UnknownValueError:
+            recog_flag=False
+        except sr.RequestError as e:
+            print(f"[자바스] 서버 연결에 실패하였습니다 : {e}")
+        callback_flag = False
 
 def speaker(text,face):
     global is_1, is_2, is_3
@@ -177,6 +182,7 @@ def speaker(text,face):
     playsound(file_name)
     if os.path.exists(file_name):
         os.remove(file_name)
+    time.sleep(5)
 
 
 def sentence_analysis(sentence):
