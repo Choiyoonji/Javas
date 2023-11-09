@@ -62,7 +62,7 @@ AX_CCW_COMPLIANCE_MARGIN = 1
 AX_CW_COMPLIANCE_SLOPE = 128
 AX_CCW_COMPLIANCE_SLOPE = 128
 
-DEVICENAME = '/dev/ttyUSB1'
+DEVICENAME = '/dev/ttyUSB0'
 
 
 port_handler = PortHandler(DEVICENAME)
@@ -122,18 +122,32 @@ class MotorControlHub:
         self.previous_position = Point()
         self.save_position = Point()
 
-        #테스트용(이후에 지워야함)
+        # 테스트용 (이후에 지워야 함)
         self.target_position.x = 0
         self.target_position.y = 30
         self.target_position.z = 20
         
         
-        #아래방향 바라봄
-        self.orientation_matrix = [
-            [1,0,0],
-            [0,-1,0],
-            [0,0,-1]
-        ] 
+        # 아래 방향 바라봄
+        self.orientation_matrix_1 = [[1, 0, 0],
+                                     [0, -1, 0],
+                                     [0, 0, -1]]
+
+        # 앞 방향 바라봄 ( 수정 필요할 듯 )
+        self.orientation_matrix_2 = [[0, 1, 0],
+                                     [0, 0, 1],
+                                     [1, 0, 0]]
+        
+        # self.orientation_matrix_3 = [[math.sin(math.pi / 4), math.cos(math.pi / 4), 0],
+        #                              [math.cos(math.pi / 4), math.sin(math.pi / 4), 0],
+        #                              [0, 0, 1]]
+        
+        # self.orientation_matrix_3 = [[0, math.sin(45 * math.pi / 180), -math.cos(45 * math.pi / 180)],
+        #                              [0, -math.cos(45 * math.pi / 180), math.sin(45 * math.pi / 180)],
+        #                              [1, 0, 0]]
+#         cos(45°)  -sin(45°)   0
+# sin(45°)   cos(45°)   0
+#    0          0       1
         
         self.D = Twist()
         self.U = Twist()
@@ -158,7 +172,7 @@ class MotorControlHub:
         self.set_pos.xm_position_p2 = [2048,2048+100-1024,2048-100+1024]#[2048, 2048, 2048, 2048, 2048]
 
         self.set_ax_speed.id = AX_DXL_ID
-        self.set_ax_speed.speed = [20, 20, 80]
+        self.set_ax_speed.speed = [80, 80, 80]
         
         self.object_coord = {}
         
@@ -168,8 +182,11 @@ class MotorControlHub:
         self.object_coord['tape'] = Point()
         self.object_coord['stapler'] = Point()
         self.object_coord['wheel'] = Point()
+        self.object_coord['door'] = Point()
         
         self.tool = []
+        self.door_open = False
+        self.hold_flag = False
         
         rospy.Subscriber('object_position', ObjPoint, self.position_callback, queue_size=1)
         rospy.Subscriber('tool_list', String, self.tool_callback, queue_size=1)
@@ -195,77 +212,151 @@ class MotorControlHub:
             p.z = self.object_coord[tool].z
             self.tool_position_list.append(p)
         
-        for i in range(len(self.tool)):
+        for i, tool in enumerate(self.tool):
+            if tool == 'door':
+                self.door_open = True
             self.set_target_position_tool(i)
+            self.door_open = False
 
     def point_distance(self, p1:Point, p2:Point):
         return ((p1.x-p2.x)**2+(p1.y-p2.y)**2+(p1.z-p2.z)**2)**(1/2)
 
     def set_target_position_tool(self, i):
-        
-        
         self.target_first_link_flag = True
-        
+
         self.target_position.x = self.tool_position_list[i].x
         self.target_position.y = self.tool_position_list[i].y
         self.target_position.z = self.tool_position_list[i].z
-        
+
         print(self.target_position)
-        self.target_position.z += 10
 
-        self.set_target_position()
-        rospy.Rate(0.2).sleep()
-        
-        ###############################################################################
-        
-        self.target_position.z -= 7
+        if self.door_open:
+            self.target_position.y -= 20
+            self.set_target_position()
+            rospy.Rate(0.2).sleep()
+            ############################# 문 손잡이로 접근 ####################################
+            self.target_position.y += 10
+            self.target_position.z += 3
+            self.set_target_position()
+            rospy.Rate(0.2).sleep()
+            ############################## 좀만 더 접근 ######################################
+            # for i in range()
+            self.target_position.y += 4
+            self.target_position.z += 1.0
+            self.set_target_position()
+            rospy.Rate(0.8).sleep()
+            ############################# 마지막으로 접근 #####################################
+            self.target_position.y += 4
+            # self.target_position.z += 0.5
+            self.set_target_position()
+            rospy.Rate(0.8).sleep()
+            ############################### 그리퍼 잡기 ######################################
+            self.gripper_load_check = False
+            self.gripper_position = 0
+            self.set_target_position()
+            rospy.Rate(0.3).sleep()
+            ################################# 비틀기 ########################################
+            self.hold_flag = True 
+            self.set_target_position()
+            rospy.Rate(1).sleep()
+            # ############################# 비튼 채로 뒤로 ####################################
+            self.target_position.y -= 5
+            self.set_target_position()
+            rospy.Rate(1).sleep()
+            # ############################ 비튼거 다시 원위치 ##################################
+            self.hold_flag = False
+            self.set_target_position()
+            rospy.Rate(0.5).sleep()
+            # ####################### 아직까진 잡은 채로 좀 더 뒤로 ##############################
+            self.target_position.y -= 5
+            self.set_target_position()
+            rospy.Rate(0.5).sleep()
+            ################################ 잡은거 풀기 ######################################
+            self.gripper_position = 512
+            self.set_target_position()
+            rospy.Rate(0.8).sleep()
+            # ############################ 푼 채로 조금 뒤로 ###################################
+            self.target_position.y -= 5
+            self.set_target_position()
+            rospy.Rate(1).sleep()
+            ############################## 오른쪽으로 확 틀기 ##################################
+            self.target_position.x += 19
+            self.set_target_position()
+            rospy.Rate(1.5).sleep()
+            # ############################# 앞으로 많이 접근 ###################################
+            self.target_position.y += 15
+            self.set_target_position()
+            rospy.Rate(0.2).sleep()
+            # ###################### 왼쪽으로 조금 틀어서 문까지 접합 #############################
+            self.target_position.x -= 8
+            self.set_target_position()
+            rospy.Rate(0.8).sleep()
+            # ############################### 문 확 열기 ######################################
+            self.target_position.x -= 11
+            self.target_position.y -= 9
+            self.set_target_position()
+            rospy.Rate(0.3).sleep()
+            # ####################### task를 끝내며 초기 위치로 이동 ##############################
+            self.target_position.y -= 10
+            self.set_target_position()
+            rospy.Rate(0.3).sleep()
 
-        
-        self.set_target_position()
-        rospy.Rate(0.2).sleep()
-        
-        ###############################################################################
-        
-        self.gripper_load_check = False
-        self.gripper_position = 0
-        self.set_target_position()
-        rospy.Rate(0.3).sleep()
-        
-        ################################################################################
-        
-        self.target_position.z += 15
+        else:
+            self.target_position.z += 10
 
-        
-        self.set_target_position()
-        rospy.Rate(0.2).sleep()
-        
-        ###############################################################################
-        
-        self.target_first_link_flag = False
-        
-        self.target_position.x = -20
-        self.target_position.y = -5
-        self.target_position.z = 0
+            self.set_target_position()
+            rospy.Rate(0.2).sleep()
 
-        
-        self.set_target_position()
-        rospy.Rate(0.2).sleep()
-        
-        ##############################################################################
-        
-        self.linear_pub.publish(self.D)
-        rospy.Rate(0.5).sleep()
-        
-        ##############################################################################
-        
-        self.gripper_position = 512
-        self.set_target_position()
-        rospy.Rate(0.8).sleep()
-        
-        ##############################################################################
-        
-        self.linear_pub.publish(self.U)
-        rospy.Rate(0.8).sleep()
+            ###############################################################################
+
+            self.target_position.z -= 7
+
+
+            self.set_target_position()
+            rospy.Rate(0.2).sleep()
+
+            ###############################################################################
+
+            self.gripper_load_check = False
+            self.gripper_position = 0
+            self.set_target_position()
+            rospy.Rate(0.3).sleep()
+
+            ################################################################################
+
+            self.target_position.z += 15
+
+
+            self.set_target_position()
+            rospy.Rate(0.2).sleep()
+
+            ###############################################################################
+
+            self.target_first_link_flag = False
+
+            self.target_position.x = -20
+            self.target_position.y = -5
+            self.target_position.z = 0
+
+
+            self.set_target_position()
+            rospy.Rate(0.2).sleep()
+
+            ##############################################################################
+
+            self.linear_pub.publish(self.D)
+            rospy.Rate(0.5).sleep()
+
+            ##############################################################################
+
+            self.gripper_position = 512
+            self.set_target_position()
+            rospy.Rate(0.8).sleep()
+
+            ##############################################################################
+
+            self.linear_pub.publish(self.U)
+            rospy.Rate(0.8).sleep()
 
 
     def set_goal_pos_callback(self,data):
@@ -342,7 +433,15 @@ class MotorControlHub:
             print("check: ", target_pos)
             target_y_check = True
 
-        motor_angles = self.manipulator.manipulator_link.inverse_kinematics(target_position=target_pos,target_orientation=self.orientation_matrix,orientation_mode="all")
+        if self.door_open:
+            motor_angles = self.manipulator.manipulator_link.inverse_kinematics(target_position=target_pos,
+                                                                                target_orientation=self.orientation_matrix_2,
+                                                                                orientation_mode="all")
+        else:
+            motor_angles = self.manipulator.manipulator_link.inverse_kinematics(target_position=target_pos,
+                                                                                target_orientation=self.orientation_matrix_1,
+                                                                                orientation_mode="all")
+
         if self.check_inverse_kinematics(target_pos,motor_angles) is False:
             print("도달할 수 없는 타겟")
             return
@@ -351,7 +450,10 @@ class MotorControlHub:
             motor_angles[1] -= math.pi
             if motor_angles[1] < -math.pi:
                 motor_angles[1] += 2*math.pi
-
+                
+        if self.hold_flag:
+            motor_angles[6] -= math.pi / 2
+            
         motor_angles = np.append(np.array(motor_angles[1:7]), [self.gripper_position])
 
         self.manipulator.set_position(motor_angles)

@@ -17,23 +17,14 @@ import re
 인식하고 싶은 물체를 tool_list에 적는다(한글)
 그 물체에 대응되는 영어 단어를 같은 위치에 적는다
 """
-system_message='너의 이름은 javas이고 친절한 개인 비서 로봇이야. 대답은 3줄 이하로 존대말로 해줘. 짧게 대답할 수 있는 말이면 1줄이나 2줄로 대답해도 괜찮아. 너는 로봇팔이 달려있는 자동차에 내장되어있어서 움직일수 있고 물건을 잡을 수 있어. 또 스피커도 내장되어 있어서 너가 하는 말은 스피커로 출력돼 그리고 너가 현재 위치한 곳은 원흥관 i-space이야. 추가로 매 답변 마지막에 답변하며 지을 적절한 표정을 (웃음),(슬픔),(화남)중에 선택해서 출력해줘 그리고 출력된 감정은 이모티콘으로 바뀌어서 모니터 디스플레이를 통해 전달된다는걸 기억해'
+system_message='너의 이름은 javas이고 친절한 개인 비서 로봇이야. 대답은 3줄 이하로 존대말로 해줘. 짧게 대답할 수 있는 말이면 1줄이나 2줄로 대답해도 괜찮아. 너는 로봇팔이 달려있는 자동차에 내장되어있어서 움직일수 있고 물건을 잡을 수 있어. 또 스피커도 내장되어 있어서 너가 하는 말은 스피커로 출력돼 그리고 너가 현재 위치한 곳은 원흥관 1층이야. 추가로 매 답변 마지막에 답변하며 지을 적절한 표정을 (웃음),(슬픔),(화남)중에 선택해서 출력해줘 그리고 출력된 감정은 이모티콘으로 바뀌어서 모니터 디스플레이를 통해 전달된다는걸 기억해'
 
-<<<<<<< HEAD
 tool_list = ["줄자","스테이플러", "드라이버","바퀴"]
 en_tool_list = ["tapemeasure", "stapler", "screwdriver","wheel"]
 bring_list = ["갖","가져다주","갖다주","가지"]
 kkma=Kkma()
 file_name='sample.mp3'
-openai.api_key = "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" # API Key
-=======
-tool_list = ["그라인더", "니퍼", "가위", "자", "해머", "망치", "플라이어", "스테이플러", "드라이버"]
-en_tool_list = ["grinder","nipper", "scissors", "tapemeasure", "hammer", "hammer", "pliers", "stapler", "screwdriver"]
-bring_list = ["갖","가져다주","갖다주","가지"]
-kkma=Kkma()
-file_name='sample.mp3'
-openai.api_key = "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" # API Key
->>>>>>> 933b0c9978e05e927f91c68da187636afb61b3d1
+openai.api_key = "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" # API Key
 r = sr.Recognizer()
 m = sr.Microphone()
 turn_off_flag=False
@@ -109,13 +100,7 @@ def callback(r, audio):
                         en_tool_answer.append(en_tool_list[i])
 
                 words_str = ' '.join(en_tool_answer)
-<<<<<<< HEAD
                 publish_time=time.time()
-=======
-                ans_pub.publish(words_str)
-                face='웃음'
-                speaker(answer,face)
->>>>>>> 933b0c9978e05e927f91c68da187636afb61b3d1
 
                 face='웃음'
                 speaker(answer,face)

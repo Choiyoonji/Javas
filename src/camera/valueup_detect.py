@@ -1,228 +1,507 @@
 #!/usr/bin/env python
 # -- coding: utf-8 --
 
-import cv2
-import pyrealsense2 as rs
-import numpy as np
-from ultralytics import YOLO
-from ultralytics.yolo.utils.checks import check_yaml
-from ultralytics.yolo.utils import ROOT, yaml_load
-import json
+import os, sys
 import rospy
-from geometry_msgs.msg import Point
+
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))))
+
+from DynamixelSDK.ros.dynamixel_sdk.src.dynamixel_sdk import *
+from DynamixelSDK.ros.dynamixel_sdk.src.dynamixel_sdk.port_handler import PortHandler
+from DynamixelSDK.ros.dynamixel_sdk.src.dynamixel_sdk.packet_handler import PacketHandler
+from DynamixelSDK.ros.dynamixel_sdk.src.dynamixel_sdk.robotis_def import *
+from manipulator.msg import *
+from manipulator_description import Manipulator
+from geometry_msgs.msg import Point, Twist
+from std_msgs.msg import Bool, String
+import numpy as np
+
+import math
+import sys, tty, termios
+
 from valueup_project.msg import ObjPoint
 
-from time import time
-from std_msgs.msg import String
-
-WIDTH = 1280
-HEIGHT = 720
-
-# model = YOLO('best.pt')
-# model = YOLO('best_100.pt')
-model = YOLO('best2.pt')
-CLASSES = yaml_load(check_yaml('valueup_data.yaml'))['names']
-# colors = np.random.uniform(0, 255, size=(len(CLASSES), 3)) # RGB
-# colors = np.random.uniform(0, 255, size=(len(CLASSES), 3)) # RGB
+fd = sys.stdin.fileno()
+old_settings = termios.tcgetattr(fd)
+def getch():
+    try:
+        tty.setraw(sys.stdin.fileno())
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return ch
 
 
-class Depth_Camera():
+#*************************AX-12A(PROTOCOL_VERSION 1.0)*****************************#
+
+# Control table address
+AX_ADDR_TORQUE_ENABLE          = 24 # 토크 활성화(1)/비활성화(0)
+AX_ADDR_CW_COMPLIANCE_MARGIN   = 26 # 시계방향 : Goal Position을 도달했다고 판단하는 Margin값, 예를 들어 Goal Position이 30이고 Margin값이 2라면 28~32에 도달하면 goal position에 도달한것으로 판단함
+AX_ADDR_CCW_COMPLIANCE_MARGIN  = 27 # 반시계 방향 : ```
+AX_ADDR_CW_COMPLIANCE_SLOPE    = 28 # 시계방향 : 가속/김속하는 시간
+AX_ADDR_CCW_COMPLIANCE_SLOPE   = 29 # 반시계방향 : ```
+AX_ADDR_GOAL_POSITION          = 30 # 목표 각도
+AX_ADDR_MOVING_SPEED           = 32 # 목표 속도
+AX_ADDR_PRESENT_POSITION       = 36 # 현재 각도
+AX_ADDR_PRESENT_SPEED          = 38 # 현재 속도
+AX_ADDR_PRESENT_LOAD           = 40
+AX_ADDR_MOVING                 = 46
+AX_ADDR_PUNCH                  = 48 # 모터에 가하는 최소 전류 -> 다르게 생각하면 최소 속도라고 할 수 있을 듯
+
+AX_PROTOCOL_VERSION = 1.0
+
+AX_DXL_ID = [5,6,7]
+
+BAUDRATE = 115200
+
+AX_TORQUE_ENABLE = 1
+AX_TORQUE_DISABLE = 0
+
+AX_CW_COMPLIANCE_MARGIN = 1 #실제로 설정하려는 값
+AX_CCW_COMPLIANCE_MARGIN = 1
+AX_CW_COMPLIANCE_SLOPE = 128
+AX_CCW_COMPLIANCE_SLOPE = 128
+
+DEVICENAME = '/dev/ttyUSB0'
+
+
+port_handler = PortHandler(DEVICENAME)
+ax_packet_handler = PacketHandler(AX_PROTOCOL_VERSION)
+
+#**********************************************************************************#
+
+
+#**********************XM430-W350-R(PROTOCOL_VERSION 2.0)**************************#
+
+# Control table address
+
+XM_ADDR_TORQUE_ENABLE           = 64
+XM_ADDR_VELOCITY_I_GAIN         = 76
+XM_ADDR_VELOCITY_P_GAIN         = 78
+XM_ADDR_POTISION_D_GAIN         = 80
+XM_ADDR_POSITION_I_GAIN         = 82
+XM_ADDR_POSITION_P_GAIN         = 84
+XM_ADDR_FEEDFORWARD_2ND_GAIN    = 88
+XM_ADDR_FEEDFORWARD_1ST_GAIN    = 90
+XM_ADDR_PROFILE_ACCELERATION    = 108
+XM_ADDR_PROFILE_VELOCITY        = 112
+XM_ADDR_GOAL_POSITION           = 116
+XM_ADDR_MOVING                  = 122
+XM_ADDR_MOVING_STATUS           = 123
+XM_ADDR_PRESENT_POSITION        = 132
+
+XM_PROTOCOL_VERSION_1 = 1.0
+XM_PROTOCOL_VERSION_2 = 2.0
+
+XM_DXL_ID_P1 = [3,4]
+XM_DXL_ID_P2 = [0,1,2]
+
+
+XM_TORQUE_ENABLE = 1
+XM_TORQUE_DISABLE = 0
+
+xm_packet_handler_p1 = PacketHandler(XM_PROTOCOL_VERSION_1)
+xm_packet_handler_p2 = PacketHandler(XM_PROTOCOL_VERSION_2)
+
+
+MOTOR_VELOCITY = [40, 10, 10, 10, 10, 30, 50, 100]
+
+
+#**********************************************************************************#
+
+class MotorControlHub:
 
     def __init__(self):
-<<<<<<< HEAD
-        self.pospub = rospy.Publisher('object_position', ObjPoint, queue_size=1)
-=======
-        self.tool_sub = rospy.Subscriber('tool_list', String, self.callback_tool, queue_size=1)
-        self.pospub = rospy.Publisher('target_position', Point, queue_size=1)
->>>>>>> 933b0c9978e05e927f91c68da187636afb61b3d1
-        self.pipeline = rs.pipeline()
-        self.config = rs.config()
-        self.align = None
-        self.align_to = None
-        self.detect = False
-        self.position = Point()
-<<<<<<< HEAD
+
+        self.set_pos = SyncSetPosition()
+        self.set_ax_speed = AXSyncSetMovingSpeed()
+
+        self.manipulator = Manipulator()
         
-        self.offset = {}
+        self.target_position = Point()
+        self.previous_position = Point()
+        self.save_position = Point()
+
+        # 테스트용 (이후에 지워야 함)
+        self.target_position.x = 0
+        self.target_position.y = 30
+        self.target_position.z = 20
         
-        self.offset['bottle'] = Point()
-        self.offset['bottle'].x = 0
-        self.offset['bottle'].y = 0
-        self.offset['bottle'].z = -6
-        self.offset['screwdriver'] = Point()
-        self.offset['screwdriver'].x = 0
-        self.offset['screwdriver'].y = 4
-        self.offset['screwdriver'].z = -6
-        self.offset['tapemeasure'] = Point()
-        self.offset['tapemeasure'].x = 0
-        self.offset['tapemeasure'].y = 5
-        self.offset['tapemeasure'].z = -6
-        self.offset['tape'] = Point()
-        self.offset['tape'].x = 0
-        self.offset['tape'].y = 0
-        self.offset['tape'].z = -6
-        self.offset['stapler'] = Point()
-        self.offset['stapler'].x = 0
-        self.offset['stapler'].y = 6
-        self.offset['stapler'].z = -8
-        self.offset['wheel'] = Point()
-        self.offset['wheel'].x = 0
-        self.offset['wheel'].y = 5
-        self.offset['wheel'].z = -6
-=======
-        self.tool = None
->>>>>>> 933b0c9978e05e927f91c68da187636afb61b3d1
+        
+        # 아래 방향 바라봄
+        self.orientation_matrix_1 = [[1, 0, 0],
+                                     [0, -1, 0],
+                                     [0, 0, -1]]
 
-        self.translate_vector = np.array([0, 0.2, 0.3])
-        self.rotate_degree = -30
+        # 앞 방향 바라봄 ( 수정 필요할 듯 )
+        self.orientation_matrix_2 = [[1, 0, 0],
+                                     [0, 0, 1],
+                                     [0, -1, 0]]
+        
+        self.D = Twist()
+        self.U = Twist()
+        self.D.linear.x = -0.5
+        self.U.linear.x = 0.5
 
-        context = rs.context()
-        connect_device = None
-        if context.devices[0].get_info(rs.camera_info.name).lower() != 'platform camera':
-            connect_device = context.devices[0].get_info(rs.camera_info.serial_number)
+        self.gripper_position = 512
+        self.gripper_present_load = 0
+        self.gripper_load_check = False
 
-        print(" > Serial number : {}".format(connect_device))
-        self.config.enable_device(connect_device)
-        self.config.enable_stream(rs.stream.depth, WIDTH, HEIGHT, rs.format.z16, 30)
-        self.config.enable_stream(rs.stream.color, WIDTH, HEIGHT, rs.format.bgr8, 30)
+        self.target_position_flag = False
+        
+        self.target_first_link_flag = False
+        
+        
+        self.set_pos.ax_id = AX_DXL_ID
+        self.set_pos.xm_id_p1 = XM_DXL_ID_P1
+        self.set_pos.xm_id_p2 = XM_DXL_ID_P2
 
-    def callback_tool(self, msg):
-        self.tool = msg.data
+        self.set_pos.ax_position = [200, 512, 512]
+        self.set_pos.xm_position_p1 = [2048,2048]
+        self.set_pos.xm_position_p2 = [2048,2048+100-1024,2048-100+1024]#[2048, 2048, 2048, 2048, 2048]
 
-    def __del__(self):
-        print("Collecting process is done.\n")
+        self.set_ax_speed.id = AX_DXL_ID
+        self.set_ax_speed.speed = [20, 20, 80]
+        
+        self.object_coord = {}
+        
+        self.object_coord['bottle'] = Point()
+        self.object_coord['screwdriver'] = Point()
+        self.object_coord['tapemeasure'] = Point()
+        self.object_coord['tape'] = Point()
+        self.object_coord['stapler'] = Point()
+        self.object_coord['wheel'] = Point()
+        self.object_coord['door'] = Point()
+        
+        self.tool = []
+        self.door_open = False
+        
+        rospy.Subscriber('object_position', ObjPoint, self.position_callback, queue_size=1)
+        rospy.Subscriber('tool_list', String, self.tool_callback, queue_size=1)
+
+        rospy.Subscriber('set_position',SyncSetPosition, self.set_goal_pos_callback, queue_size=1)
+
+        self.linear_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=1)
+        self.pos_pub = rospy.Publisher('present_position', SyncSetPosition, queue_size=1)
+        self.ax_speed_pub = rospy.Publisher('present_ax_speed', AXSyncSetMovingSpeed, queue_size=1)
+
+    def position_callback(self, data:ObjPoint):
+        self.object_coord[data.object_name].x = data.x
+        self.object_coord[data.object_name].y = data.y
+        self.object_coord[data.object_name].z = data.z
+        
+    def tool_callback(self, data:String):
+        self.tool = data.data.split(' ')
+        self.tool_position_list = []
+        for tool in self.tool:
+            p = Point()
+            p.x = self.object_coord[tool].x
+            p.y = self.object_coord[tool].y
+            p.z = self.object_coord[tool].z
+            self.tool_position_list.append(p)
+        
+        for i, tool in enumerate(self.tool):
+            if tool == 'door':
+                self.door_open = True
+            self.set_target_position_tool(i)
+            self.door_open = False
+
+    def point_distance(self, p1:Point, p2:Point):
+        return ((p1.x-p2.x)**2+(p1.y-p2.y)**2+(p1.z-p2.z)**2)**(1/2)
+
+    def set_target_position_tool(self, i):
+        self.target_first_link_flag = True
+
+        self.target_position.x = self.tool_position_list[i].x
+        self.target_position.y = self.tool_position_list[i].y
+        self.target_position.z = self.tool_position_list[i].z
+
+        print(self.target_position)
+
+        if self.door_open:
+            self.target_position.y -= 10
+            self.set_target_position()
+            rospy.Rate(0.2).sleep()
+
+            ###############################################################################
+            self.target_position.y += 10
+            self.set_target_position()
+            rospy.Rate(0.2).sleep()
+            ###############################################################################
+            self.gripper_load_check = False
+            self.gripper_position = 0
+            self.set_target_position()
+            rospy.Rate(0.3).sleep()
+            ################################################################################
+
+        else:
+            self.target_position.z += 10
+
+            self.set_target_position()
+            rospy.Rate(0.2).sleep()
+
+            ###############################################################################
+
+            self.target_position.z -= 7
+
+
+            self.set_target_position()
+            rospy.Rate(0.2).sleep()
+
+            ###############################################################################
+
+            self.gripper_load_check = False
+            self.gripper_position = 0
+            self.set_target_position()
+            rospy.Rate(0.3).sleep()
+
+            ################################################################################
+
+            self.target_position.z += 15
+
+
+            self.set_target_position()
+            rospy.Rate(0.2).sleep()
+
+            ###############################################################################
+
+            self.target_first_link_flag = False
+
+            self.target_position.x = -20
+            self.target_position.y = -5
+            self.target_position.z = 0
+
+
+            self.set_target_position()
+            rospy.Rate(0.2).sleep()
+
+            ##############################################################################
+
+            self.linear_pub.publish(self.D)
+            rospy.Rate(0.5).sleep()
+
+            ##############################################################################
+
+            self.gripper_position = 512
+            self.set_target_position()
+            rospy.Rate(0.8).sleep()
+
+            ##############################################################################
+
+            self.linear_pub.publish(self.U)
+            rospy.Rate(0.8).sleep()
+
+
+    def set_goal_pos_callback(self,data):
+        self.set_pos = data
+
+
+    def set_goal_pos(self,data:SyncSetPosition):
+        for idx in range(len(data.ax_id)):
+            # print("Set Goal AX_Position of ID %s = %s" % (data.ax_id[idx], data.ax_position[idx]))
+            ax_packet_handler.write2ByteTxRx(port_handler,data.ax_id[idx], AX_ADDR_GOAL_POSITION, data.ax_position[idx])
+
+        for idx in range(len(data.xm_id_p1)):
+            # print("Set Goal XM_Position of ID %s = %s" % (data.xm_id[idx], data.xm_position[idx]))
+            xm_packet_handler_p1.write4ByteTxRx(port_handler,data.xm_id_p1[idx], XM_ADDR_GOAL_POSITION, data.xm_position_p1[idx])
+
+        for idx in range(len(data.xm_id_p2)):
+            # print("Set Goal XM_Position of ID %s = %s" % (data.xm_id[idx], data.xm_position[idx]))
+            if idx == 0 and self.target_first_link_flag is True:
+                xm_packet_handler_p2.write4ByteTxRx(port_handler,data.xm_id_p2[idx], XM_ADDR_GOAL_POSITION, data.xm_position_p2[idx]-1024)
+                continue
+            xm_packet_handler_p2.write4ByteTxRx(port_handler,data.xm_id_p2[idx], XM_ADDR_GOAL_POSITION, data.xm_position_p2[idx])
+
+
+
+    def present_position_callback(self):
+        present_position = SyncSetPosition()
+        present_position.ax_id = AX_DXL_ID
+        present_position.xm_id_p1 = XM_DXL_ID_P1
+        present_position.xm_position_p2= XM_DXL_ID_P2
+        present_position.ax_position = []
+        present_position.xm_position_p1 = []
+        present_position.xm_position_p2 = []
+
+        for id in AX_DXL_ID:
+            dxl_present_position, dxl_comm_result, dxl_error = ax_packet_handler.read2ByteTxRx(port_handler, id, AX_ADDR_PRESENT_POSITION)
+            present_position.ax_position.append(dxl_present_position)
+            if(dxl_comm_result != COMM_SUCCESS) :
+                return
+            if(dxl_error != 0) :
+                return
+            
+        for id in XM_DXL_ID_P1:
+            dxl_present_position, dxl_comm_result, dxl_error = xm_packet_handler_p1.read4ByteTxRx(port_handler, id, XM_ADDR_PRESENT_POSITION)
+            present_position.xm_position_p1.append(dxl_present_position)
+            if(dxl_comm_result != COMM_SUCCESS) :
+                return
+            if(dxl_error != 0) :
+                return
+
+        for id in XM_DXL_ID_P2:
+            dxl_present_position, dxl_comm_result, dxl_error = xm_packet_handler_p2.read4ByteTxRx(port_handler, id, XM_ADDR_PRESENT_POSITION)
+            present_position.xm_position_p2.append(dxl_present_position)
+            if(dxl_comm_result != COMM_SUCCESS) :
+                return
+            if(dxl_error != 0) :
+                return
+            
+        self.gripper_present_load, dxl_comm_result, dxl_error = ax_packet_handler.read2ByteTxRx(port_handler, AX_DXL_ID[2], AX_ADDR_PRESENT_LOAD)
+        if(dxl_comm_result != COMM_SUCCESS) :
+            return
+        if(dxl_error != 0) :
+            return
+        self.gripper_present_load %= 1024
+        self.pos_pub.publish(present_position)
+
     
-    def rotate_x(self,vector, degree):
-        # Degree to Radian
-        rad = np.radians(degree)
-        
-        # Rotation Matrix
-        rotation_matrix = np.array([
-            [1, 0, 0],
-            [0, np.cos(rad), -np.sin(rad)],
-            [0, np.sin(rad), np.cos(rad)]
-        ])
-        
-        return np.dot(rotation_matrix, vector)
-    
-    def translate(self,vector, translation):
-        return vector + translation
+    def set_target_position(self):
+        target_pos = [self.target_position.x, self.target_position.y, self.target_position.z]
 
-    def execute(self):
-        print('Collecting depth information...')
-        
-        try:
-            self.pipeline.start(self.config)
-        except:
-            print("There is no signal sended from depth camera.")
-            print("Check connection status of camera.")
+        target_y_check = False
+        if self.target_position.y < 0:
+            target_pos[0] *= -1
+            target_pos[1] *= -1
+            print("check: ", target_pos)
+            target_y_check = True
+
+        if self.door_open:
+            motor_angles = self.manipulator.manipulator_link.inverse_kinematics(target_position=target_pos,
+                                                                                target_orientation=self.orientation_matrix_2,
+                                                                                orientation_mode="all")
+        else:
+            motor_angles = self.manipulator.manipulator_link.inverse_kinematics(target_position=target_pos,
+                                                                                target_orientation=self.orientation_matrix_1,
+                                                                                orientation_mode="all")
+
+        if self.check_inverse_kinematics(target_pos,motor_angles) is False:
+            print("도달할 수 없는 타겟")
             return
         
-        self.align_to = rs.stream.color
-        self.align = rs.align(self.align_to)
+        if target_y_check is True:
+            motor_angles[1] -= math.pi
+            if motor_angles[1] < -math.pi:
+                motor_angles[1] += 2*math.pi
 
-        try:
-            while True:
+        motor_angles = np.append(np.array(motor_angles[1:7]), [self.gripper_position])
 
-                frames = self.pipeline.wait_for_frames()
-                aligned_frames = self.align.process(frames)
-                depth_frame = aligned_frames.get_depth_frame()
-                color_frame = aligned_frames.get_color_frame()
-                depth_info = depth_frame.as_depth_frame()
+        self.manipulator.set_position(motor_angles)
+    
+    def check_inverse_kinematics(self, target_position, motor_angles):
+        return self.distance_target_point(np.transpose(np.array(self.manipulator.manipulator_link.forward_kinematics(motor_angles)[:3,3:]))[0], target_position)
 
-                color_intrinsics = color_frame.profile.as_video_stream_profile().intrinsics # 내부 파라미터
-                
-                color_image = np.asanyarray(color_frame.get_data())
-                color_image = cv2.resize(color_image, (WIDTH, HEIGHT)) # 원본으로 resize해야 world 좌표가 잘 나옴
-                # 객체 인지도 1280 x 720이 더 잘 됨
-                
-                results = model(color_image, stream=True)
 
-                class_ids = []
-                confidences = []
-                bboxes = []
-                obj_centers = []
+    def distance_target_point(self, p1, p2):
+        distance = ((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2 + (p1[2]-p2[2])**2)**(1/2)
+        # print("distance: ",distance)
+        if distance > 1:
+            return False
+        else:
+            return True
 
-                for result in results:
-                    boxes = result.boxes
-                    for box in boxes:
-                        confidence = box.conf
-                        if confidence > 0.5 :
-                            xyxy = box.xyxy.tolist()[0]
-                            bboxes.append(xyxy)
-                            confidences.append(float(confidence))
-                            class_ids.append(box.cls.tolist())
-                            cx = int((xyxy[2]+xyxy[0])//2)
-                            cy = int((xyxy[3]+xyxy[1])//2)
-                            obj_centers.append([cx,cy]) # 중심
-                            
 
-                result_boxes = cv2.dnn.NMSBoxes(bboxes, confidences, 0.25, 0.45, 0.5)
-  
-                font = cv2.FONT_HERSHEY_PLAIN
-                
-                for i in range(len(bboxes)):
-                    label = str(CLASSES[int(class_ids[i][0])])
 
-                    # if label == 'Screw Driver':
-                    if i in result_boxes:
-                        obj = ObjPoint()
-                        bbox = list(map(int, bboxes[i])) 
-                        x, y, x2, y2 = bbox
-                        cx, cy = obj_centers[i]
-                        
-                        print("Depth : ", round((depth_info.get_distance(cx, cy) * 100), 2), "cm")
+def main():
+    rospy.init_node('motor_control_hub')
+ 
 
-                        depth = round((depth_info.get_distance(cx, cy) * 100), 2)
+    try:
+        port_handler.openPort()
+        print("Succeeded to open the port")
+    except:
+        print("Failed to open the port")
+        print("Press any key to terminate...")
+        getch()
+        quit()
 
-                        if depth <= 10:
-                            continue
-                        
-                        wx, wy, wz = rs.rs2_deproject_pixel_to_point(color_intrinsics, [cx, cy], depth)
-                        # wx, wy, wz가 real world coordinator
-                        # 단위는 cm
-                        
-                        print(wx, wy, wz)
+    try:
+        port_handler.setBaudRate(BAUDRATE)
+        print("Succeeded to change the baudrate")
+    except:
+        print("Failed to change the baudrate")
+        print("Press any key to terminate...")
+        getch()
+        quit()
 
-                        vector = np.array([wx, wz, -wy])
+    for id in AX_DXL_ID :
+        dxl_comm_result, dxl_error = ax_packet_handler.write1ByteTxRx(port_handler, id, AX_ADDR_TORQUE_ENABLE, AX_TORQUE_ENABLE)
+        if dxl_comm_result != COMM_SUCCESS:
+            print("%s" % ax_packet_handler.getTxRxResult(dxl_comm_result))
+            print("Press any key to terminate...")
+            getch()
+            quit()
+        elif dxl_error != 0:
+            print("%s" % ax_packet_handler.getRxPacketError(dxl_error))
+            print("Press any key to terminate...")
+            getch()
+            quit()
+        else:
+            print(f"DYNAMIXEL(ID : {id}) has been successfully connected")
+            ax_packet_handler.write1ByteTxRx(port_handler, id, AX_ADDR_CW_COMPLIANCE_MARGIN, AX_CW_COMPLIANCE_MARGIN) #초기 margin 설정
+            ax_packet_handler.write1ByteTxRx(port_handler, id, AX_ADDR_CCW_COMPLIANCE_MARGIN, AX_CCW_COMPLIANCE_MARGIN) #초기 margin 설정
+            ax_packet_handler.write1ByteTxRx(port_handler, id, AX_ADDR_CW_COMPLIANCE_SLOPE, AX_CW_COMPLIANCE_SLOPE) #초기 slope 설정
+            ax_packet_handler.write1ByteTxRx(port_handler, id, AX_ADDR_CCW_COMPLIANCE_SLOPE, AX_CCW_COMPLIANCE_SLOPE) #초기 slope 설정
+            ax_packet_handler.write2ByteTxRx(port_handler, id, AX_ADDR_MOVING_SPEED, MOTOR_VELOCITY[id]) #초기 속도 설정
 
-                        # x축을 중심으로 d도 회전
-                        rotated_vector = self.rotate_x(vector, self.rotate_degree)
+    for id in XM_DXL_ID_P1 :
+        dxl_comm_result, dxl_error = xm_packet_handler_p1.write1ByteTxRx(port_handler, id, XM_ADDR_TORQUE_ENABLE, XM_TORQUE_ENABLE)
+        if dxl_comm_result != COMM_SUCCESS:
+            print("%s" % xm_packet_handler_p1.getTxRxResult(dxl_comm_result))
+            print("Press any key to terminate...")
+            getch()
+            quit()
+        elif dxl_error != 0:
+            print("%s" % xm_packet_handler_p1.getRxPacketError(dxl_error))
+            print("Press any key to terminate...")
+            getch()
+            quit()
+        else:
+            xm_packet_handler_p1.write4ByteTxRx(port_handler, id, XM_ADDR_PROFILE_VELOCITY, MOTOR_VELOCITY[id])
+        print(f"DYNAMIXEL(ID : {id}) has been successfully connected")
 
-                        translated_vector = self.translate(rotated_vector, self.translate_vector)
+    for id in XM_DXL_ID_P2 :
+        dxl_comm_result, dxl_error = xm_packet_handler_p2.write1ByteTxRx(port_handler, id, XM_ADDR_TORQUE_ENABLE, XM_TORQUE_ENABLE)
+        if dxl_comm_result != COMM_SUCCESS:
+            print("%s" % xm_packet_handler_p2.getTxRxResult(dxl_comm_result))
+            print("Press any key to terminate...")
+            getch()
+            quit()
+        elif dxl_error != 0:
+            print("%s" % xm_packet_handler_p2.getRxPacketError(dxl_error))
+            print("Press any key to terminate...")
+            getch()
+            quit()
+        else:
+            xm_packet_handler_p2.write4ByteTxRx(port_handler, id, XM_ADDR_PROFILE_VELOCITY, MOTOR_VELOCITY[id])
+        print(f"DYNAMIXEL(ID : {id}) has been successfully connected")
 
-                        obj.object_name = label
-                        obj.x = translated_vector[0]+self.offset[label].x
-                        obj.y = translated_vector[1]+self.offset[label].y
-                        obj.z = translated_vector[2]+self.offset[label].z
+    
+    print("Ready to get & set Position.")
 
-                        self.pospub.publish(obj)
-                        
-                        
-                    try:
-                        color = colors[i]
-                        color = (int(color[0]), int(color[1]), int(color[2]), int(color[3]), int(color[4]))
-                    except:
-                        print("Error")
-                    if label != "bottle":
-                        color = (0,255,0)
-                        cv2.rectangle(color_image, (x, y), (x2, y2), color, 4)
-                        cv2.putText(color_image, "{} cm".format(depth), (x + 5, y + 60), 0, 1.0, color, 2)
-                        cv2.putText(color_image, label, (x, y + 30), font, 3, color, 3)
-                    
-                cv2.imshow('image', color_image)
-                #cv2.imwrite('./valueup_detect.png', color_image)
+    ############################################################################################################
+    #  여기까지는 dynamixel 기본 설정
+    ############################################################################################################
 
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
 
-        finally:
-            self.pipeline.stop()
-        print("┌──────────────────────────────────────┐")
-        print('│ Collecting of depth info is stopped. │')
-        print("└──────────────────────────────────────┘")
+    data_hub = MotorControlHub()
+    rate = rospy.Rate(30)
 
-if __name__ == "__main__":
-    rospy.init_node('camera')
-    depth_camera = Depth_Camera()
-    depth_camera.execute()
+    while not rospy.is_shutdown():
+
+        data_hub.set_goal_pos(data_hub.set_pos)
+
+        data_hub.present_position_callback()
+
+        rate.sleep()
+
+        if(data_hub.gripper_present_load > 300 and data_hub.gripper_load_check is False) :
+            print("dasdas:", data_hub.gripper_present_load, data_hub.manipulator.ax_position[2])
+            data_hub.gripper_position = data_hub.manipulator.ax_position[2]-30
+            data_hub.set_target_position()
+            data_hub.gripper_load_check = True
+
+
+
+if __name__ == '__main__':
+    main()
