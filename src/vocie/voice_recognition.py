@@ -87,7 +87,7 @@ def gpt_ask(text):
     #     return "죄송합니다. 다시 말씀해주세요","슬픔"
 
 def callback(r, audio):
-    print("callback!")
+    # print("callback!")
     global turn_off_flag, recog_flag, ex_answer, callback_flag
     if callback_flag == False:
         callback_flag = True
@@ -110,7 +110,7 @@ def callback(r, audio):
             
             elif '굿모닝' in full_text or '좋은 아침' in full_text:
                 ans_pub.publish("light_on")
-                answer = '불을 킬게요'
+                answer = '좋은 아침이에요. 불을 킬게요. 식전약을 가져다드릴까요?'
                 face = '웃음'
                 speaker(answer,face)
 
@@ -118,6 +118,18 @@ def callback(r, audio):
                 go_out_list = ' '.join(prepare_to_go_out)
                 ans_pub.publish(go_out_list)
                 answer = '네, 필요한 물건들을 가져올게요'
+                face = '웃음'
+                speaker(answer,face)         
+
+            elif '불 꺼' in full_text:
+                ans_pub.publish("light_off")
+                answer = '네, 불을 끌게요'
+                face = '웃음'
+                speaker(answer,face)         
+
+            elif '날씨' in full_text:
+                # ans_pub.publish("light_off")
+                answer = '11월 10일, 오늘 날씨는 최저기온 영하 4도 최고기온  영상 7도 입니다. 체온조절에 신경써야겠어요.'
                 face = '웃음'
                 speaker(answer,face)         
                 
@@ -176,7 +188,7 @@ def speaker(text,face):
         is_2 = False
         is_1 = True       
 
-    print("[자바스] ",text)
+    print("[자바스]",text)
     tts_ko=gTTS(text=text,lang='ko')
     tts_ko.save(file_name)
     playsound(file_name)
